@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>URL Attack Detector</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <h1>URL Attack Detector</h1>
+  <p>Live events, filters, CSV/JSON export, and honeypot correlation.</p>
+
+  <a href="/export.csv">Export CSV</a> | 
+  <a href="/export.json">Export JSON</a> | 
+  <a href="/cowrie">Cowrie Logs</a>   <!-- 🔹 New link -->
+
+  <form method="get" action="/">
+    Attack type: <input type="text" name="attack_type" placeholder="e.g. sql_injection" value="{{ filters.attack_type or '' }}">
+    IP: <input type="text" name="ip" placeholder="1.2.3.4" value="{{ filters.ip or '' }}">
+    Success:
+    <select name="success">
+      <option value="">Any</option>
+      <option value="true" {% if filters.success == True %}selected{% endif %}>True</option>
+      <option value="false" {% if filters.success == False %}selected{% endif %}>False</option>
+    </select>
+    <button type="submit">Filter</button>
+  </form>
+
+  <table>
+    <tr>
+      <th>Time</th><th>IP</th><th>Method</th><th>URL</th>
+      <th>Attack</th><th>Conf</th><th>Success</th><th>HP Session</th>
+    </tr>
+    {% for r in rows %}
+    <tr>
+      <td>{{ r.timestamp }}</td>
+      <td>{{ r.src_ip }}</td>
+      <td>{{ r.method }}</td>
+      <td>{{ r.url }}</td>
+      <td>{{ r.attack_type }}</td>
+      <td>{{ r.attack_confidence }}</td>
+      <td>{{ r.is_success }}</td>
+      <td>{{ r.honeypot_session }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  
+  <p>MVP • Rules + Honeypot correlation • PCAP upload at <code>/ingest/pcap</code></p>
+</body>
+</html>

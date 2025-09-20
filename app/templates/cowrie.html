@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Cowrie Honeypot Logs</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <h1>Cowrie Honeypot Logs</h1>
+  <p>Raw login attempts and honeypot activity from Cowrie.</p>
+
+  <a href="/">HTTP/PCAP Logs</a> | 
+  <a href="/cowrie">Cowrie Logs</a> |
+  <a href="/cowrie/export.csv">Export CSV</a> | 
+  <a href="/cowrie/export.json">Export JSON</a>
+
+  <form method="get" style="margin: 1em 0;">
+    IP: <input type="text" name="ip" value="{{ filters.ip or '' }}" placeholder="e.g. 1.2.3.4">
+    Event: 
+    <select name="event">
+      <option value="">Any</option>
+      <option value="login.success" {% if filters.event == "login.success" %}selected{% endif %}>login.success</option>
+      <option value="login.failed" {% if filters.event == "login.failed" %}selected{% endif %}>login.failed</option>
+    </select>
+    <button type="submit">Filter</button>
+  </form>
+
+  <table>
+    <tr>
+      <th>Time</th><th>IP</th><th>Event</th>
+      <th>User</th><th>Pass</th><th>Session</th>
+    </tr>
+    {% for r in rows %}
+    <tr>
+      <td>{{ r.timestamp }}</td>
+      <td>{{ r.src_ip }}</td>
+      <td>{{ r.event }}</td>
+      <td>{{ r.username or "" }}</td>
+      <td>{{ r.password or "" }}</td>
+      <td>{{ r.session or "" }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</body>
+</html>

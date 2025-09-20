@@ -1,0 +1,23 @@
+version: "3.9"
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: urlsec_api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+
+  poller:
+    build:
+      context: .
+      dockerfile: poller.Dockerfile
+    container_name: cowrie_poller
+    environment:
+      - HONEYPOT_API=http://13.48.133.89/api/events
+      - MVP_API=http://api:8000/ingest/cowrie
+    depends_on:
+      - api
