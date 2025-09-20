@@ -10,22 +10,26 @@ from .utils import gen_event_id, extract_params, to_snippet
 from .detect import analyze
 from .pcap_ingest import parse_pcap_to_events
 import io, csv, os, datetime
+from collections import Counter
 
 app = FastAPI(title="URL Attack Detector MVP")
 
-# ✅ Fixed paths (correct relative to container)
+# Mount static + templates
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
-# Initialize DB
+# Init DB
 init_db()
 
+# -----------------
+# Utility functions
+# -----------------
 
 def upsert_event_dict(ev: Dict[str, Any]):
     ev = ev.copy()
     ev.setdefault("event_id", gen_event_id())
     ev.setdefault("headers", {})
-    if ev.get("url") and (ev.get("params") is None or ev.get("params") == {}):
+    if ev.get("url") and not ev.get("params"):
         try:
             ev["params"] = extract_params(ev["url"])
         except Exception:
@@ -38,7 +42,6 @@ def upsert_event_dict(ev: Dict[str, Any]):
     with get_session() as s:
         s.add(Event(**ev))
         s.commit()
-
 
 def correlate_honeypot(window_seconds: int = 3600):
     with get_session() as s:
@@ -59,6 +62,11 @@ def correlate_honeypot(window_seconds: int = 3600):
                         pass
         s.commit()
 
+# -----------------
+# Routes
+# -----------------
+
+from collections import Counter
 
 @app.get("/", response_class=HTMLResponse)
 def index(
@@ -76,18 +84,57 @@ def index(
         if success is not None:
             stmt = stmt.where(Event.is_success == success)
         rows = s.exec(stmt.order_by(Event.id.desc()).limit(500)).all()
+
+        # --- Dashboard Stats ---
+        total_events = len(s.exec(select(Event)).all())
+        honeypot_hits = len(s.exec(select(Event).where(Event.honeypot_correlated == True)).all())
+        successful_attacks = len(s.exec(select(Event).where(Event.is_success == True)).all())
+
+        from collections import Counter
+
+        # Top attackers by IP
+        ips = [e.src_ip for e in s.exec(select(Event.src_ip)).all()]
+        ip_counts = Counter(ips)
+        top_attackers = ip_counts.most_common(5)
+
+        # Attack types distribution
+        attack_types_list = [e.attack_type for e in s.exec(select(Event.attack_type)).all() if e.attack_type]
+        type_counts = Counter(attack_types_list).most_common(5)
+
     return templates.TemplateResponse(
         "index.html",
-        {"request": request, "rows": rows, "filters": {"attack_type": attack_type, "ip": ip, "success": success}},
+        {
+            "request": request,
+            "rows": rows,
+            "filters": {"attack_type": attack_type, "ip": ip, "success": success},
+            "stats": {
+                "total": total_events,
+                "honeypot": honeypot_hits,
+                "success": successful_attacks,
+                "top_attackers": top_attackers,
+                "attack_types": type_counts,   # ✅ added this
+            },
+        },
     )
 
 
+
+@app.get("/cowrie", response_class=HTMLResponse)
+def cowrie_index(request: Request, ip: Optional[str] = None, event: Optional[str] = None):
+    with get_session() as s:
+        stmt = select(CowrieEvent)
+        if ip:
+            stmt = stmt.where(CowrieEvent.src_ip == ip)
+        if event:
+            stmt = stmt.where(CowrieEvent.event == event)
+        rows = s.exec(stmt.order_by(CowrieEvent.id.desc()).limit(500)).all()
+    return templates.TemplateResponse(
+        "cowrie.html",
+        {"request": request, "rows": rows, "filters": {"ip": ip, "event": event}},
+    )
+
 @app.get("/events")
-def get_events(
-    attack_type: Optional[str] = None,
-    ip: Optional[str] = None,
-    success: Optional[bool] = None,
-):
+def get_events(attack_type: Optional[str] = None, ip: Optional[str] = None, success: Optional[bool] = None):
     with get_session() as s:
         stmt = select(Event)
         if attack_type:
@@ -98,70 +145,45 @@ def get_events(
             stmt = stmt.where(Event.is_success == success)
         return s.exec(stmt.order_by(Event.id.desc()).limit(1000)).all()
 
-
 @app.get("/export.csv")
-def export_csv(
-    attack_type: Optional[str] = None,
-    ip: Optional[str] = None,
-    success: Optional[bool] = None,
-):
+def export_csv():
     with get_session() as s:
-        stmt = select(Event)
-        if attack_type:
-            stmt = stmt.where(Event.attack_type == attack_type)
-        if ip:
-            stmt = stmt.where(Event.src_ip == ip)
-        if success is not None:
-            stmt = stmt.where(Event.is_success == success)
-        rows = s.exec(stmt.order_by(Event.id.desc())).all()
+        rows = s.exec(select(Event).order_by(Event.id.desc())).all()
     output = io.StringIO()
     w = csv.writer(output)
-    w.writerow(
-        ["timestamp", "src_ip", "dst_ip", "method", "url", "attack_type", "confidence", "is_success", "honeypot_session"]
-    )
+    w.writerow(["timestamp","src_ip","dst_ip","method","url","attack_type","confidence","is_success","honeypot_session"])
     for r in rows:
-        w.writerow(
-            [r.timestamp, r.src_ip, r.dst_ip, r.method, r.url, r.attack_type, r.attack_confidence, r.is_success, r.honeypot_session]
-        )
+        w.writerow([r.timestamp,r.src_ip,r.dst_ip,r.method,r.url,r.attack_type,r.attack_confidence,r.is_success,r.honeypot_session])
     return StreamingResponse(iter([output.getvalue()]), media_type="text/csv")
 
-
 @app.get("/export.json")
-def export_json(
-    attack_type: Optional[str] = None,
-    ip: Optional[str] = None,
-    success: Optional[bool] = None,
-):
-    rows = get_events(attack_type, ip, success)
+def export_json():
+    with get_session() as s:
+        rows = s.exec(select(Event).order_by(Event.id.desc())).all()
     return JSONResponse(content=[r.model_dump() for r in rows])
-
 
 @app.post("/ingest/http")
 async def ingest_http(payload: List[Dict[str, Any]]):
     for ev in payload:
         upsert_event_dict(ev)
-    return {"status": "ok", "ingested": len(payload)}
-
+    return {"status":"ok","ingested":len(payload)}
 
 @app.post("/ingest/cowrie")
 async def ingest_cowrie(payload: List[Dict[str, Any]]):
     with get_session() as s:
         for ev in payload:
             ce = CowrieEvent(
-                **{
-                    "timestamp": ev.get("timestamp") or ev.get("time") or "",
-                    "src_ip": ev.get("src_ip") or ev.get("peerIP") or ev.get("ip") or "",
-                    "event": ev.get("event") or ev.get("message") or "",
-                    "username": ev.get("username") or ev.get("user"),
-                    "password": ev.get("password") or ev.get("pass"),
-                    "session": ev.get("session"),
-                }
+                timestamp=ev.get("timestamp") or ev.get("time") or "",
+                src_ip=ev.get("src_ip") or ev.get("peerIP") or ev.get("ip") or "",
+                event=ev.get("event") or ev.get("message") or "",
+                username=ev.get("username") or ev.get("user"),
+                password=ev.get("password") or ev.get("pass"),
+                session=ev.get("session"),
             )
             s.add(ce)
         s.commit()
     correlate_honeypot()
-    return {"status": "ok", "ingested": len(payload)}
-
+    return {"status":"ok","ingested":len(payload)}
 
 @app.post("/ingest/pcap")
 async def ingest_pcap(file: UploadFile = File(...)):
@@ -173,21 +195,7 @@ async def ingest_pcap(file: UploadFile = File(...)):
     for ev in events:
         upsert_event_dict(ev)
     correlate_honeypot()
-    return {"status": "ok", "pcap_events": len(events)}
-
-@app.get("/cowrie", response_class=HTMLResponse)
-def cowrie_index(request: Request, ip: Optional[str] = None, success: Optional[bool] = None):
-    with get_session() as s:
-        stmt = select(CowrieEvent)
-        if ip:
-            stmt = stmt.where(CowrieEvent.src_ip == ip)
-        if success is not None:
-            if success:
-                stmt = stmt.where(CowrieEvent.event.ilike("%success"))
-            else:
-                stmt = stmt.where(CowrieEvent.event.ilike("%fail%"))
-        rows = s.exec(stmt.order_by(CowrieEvent.id.desc()).limit(500)).all()
-    return templates.TemplateResponse("cowrie.html", {"request": request, "rows": rows, "filters": {"ip": ip, "success": success}})
+    return {"status":"ok","pcap_events":len(events)}
 
 @app.get("/cowrie/export.csv")
 def export_cowrie_csv():
@@ -206,27 +214,6 @@ def export_cowrie_json():
         rows = s.exec(select(CowrieEvent).order_by(CowrieEvent.id.desc())).all()
     return JSONResponse(content=[r.model_dump() for r in rows])
 
-@app.get("/cowrie", response_class=HTMLResponse)
-def cowrie_index(
-    request: Request,
-    ip: Optional[str] = None,
-    event: Optional[str] = None,
-):
-    with get_session() as s:
-        stmt = select(CowrieEvent)
-        if ip:
-            stmt = stmt.where(CowrieEvent.src_ip == ip)
-        if event:
-            stmt = stmt.where(CowrieEvent.event == event)
-        rows = s.exec(stmt.order_by(CowrieEvent.id.desc()).limit(500)).all()
-    return templates.TemplateResponse(
-        "cowrie.html",
-        {"request": request, "rows": rows, "filters": {"ip": ip, "event": event}},
-    )
-
-
 @app.get("/healthz")
 def healthz():
-    return {"status": "ok"}
-
-
+    return {"status":"ok"}

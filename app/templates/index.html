@@ -42,7 +42,22 @@
     </tr>
     {% endfor %}
   </table>
-  
+  <div class="dashboard-summary">
+  <h2>📊 Attack Dashboard</h2>
+  <ul>
+    <li><b>Total Events:</b> {{ stats.total }}</li>
+    <li><b>Honeypot Hits:</b> {{ stats.honeypot }}</li>
+    <li><b>Successful Attacks:</b> {{ stats.success }}</li>
+  </ul>
+
+  <h3>🔥 Top Attackers</h3>
+  <ol>
+    {% for ip, count in stats.top_attackers %}
+      <li>{{ ip }} — {{ count }} events</li>
+    {% endfor %}
+  </ol>
+</div>
+
   <p>MVP • Rules + Honeypot correlation • PCAP upload at <code>/ingest/pcap</code></p>
 </body>
 </html>
