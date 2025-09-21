@@ -1,0 +1,1 @@
+# no strict runtime deps required for demo (stdlib used)
