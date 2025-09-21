@@ -54,8 +54,6 @@ export default function Cowrie() {
               <th className="text-left p-2">Time</th>
               <th className="text-left p-2">IP</th>
               <th className="text-left p-2">Event</th>
-              <th className="text-left p-2">User</th>
-              <th className="text-left p-2">Pass</th>
               <th className="text-left p-2">Session</th>
             </tr>
           </thead>
@@ -65,8 +63,6 @@ export default function Cowrie() {
                 <td className="p-2">{r.timestamp}</td>
                 <td className="p-2">{r.src_ip}</td>
                 <td className="p-2">{r.event}</td>
-                <td className="p-2">{r.username}</td>
-                <td className="p-2">{r.password}</td>
                 <td className="p-2">{r.session}</td>
               </tr>
             ))}
