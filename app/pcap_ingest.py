@@ -1,45 +1,58 @@
-import os, uuid
+import subprocess, json, uuid
 from typing import List, Dict, Any
-import pyshark
+import binascii
 
 def parse_pcap_to_events(pcap_path: str) -> List[Dict[str, Any]]:
     events = []
-    cap = pyshark.FileCapture(pcap_path, display_filter="http", keep_packets=False)
-    try:
-        for pkt in cap:
+    # Use tcp.port==80 instead of http so we also catch undecoded payloads
+    cmd = ["tshark", "-r", pcap_path, "-Y", "tcp.port==80", "-T", "json"]
+    output = subprocess.check_output(cmd)
+    packets = json.loads(output)
+
+    for pkt in packets:
+        layers = pkt.get("_source", {}).get("layers", {})
+        http = layers.get("http", {})
+        ip = layers.get("ip", {})
+        tcp = layers.get("tcp", {})
+
+        # Try proper HTTP fields first
+        method = http.get("http.request.method")
+        uri = http.get("http.request.full_uri") or http.get("http.request.uri")
+
+        # If tshark didn’t decode HTTP, fall back to raw tcp.payload
+        if not method and "tcp.payload" in tcp:
             try:
-                http = pkt.http
-            except AttributeError:
-                continue
-            method = getattr(http, "request_method", None)
-            uri = getattr(http, "request_full_uri", None) or getattr(http, "request_uri", None)
-            if not method or not uri:
-                continue
-            src_ip = getattr(pkt.ip, "src", None) if hasattr(pkt, "ip") else None
-            dst_ip = getattr(pkt.ip, "dst", None) if hasattr(pkt, "ip") else None
-            headers = {}
-            host = getattr(http, "host", None)
-            if host: headers["Host"] = host
-            ua = getattr(http, "user_agent", None)
-            if ua: headers["User-Agent"] = ua
-            body_snippet = None
-            try:
-                if hasattr(http, "file_data"):
-                    body_snippet = str(getattr(http, "file_data"))[:200]
+                raw_hex = tcp["tcp.payload"].replace(":", "")
+                raw_bytes = binascii.unhexlify(raw_hex)
+                raw_text = raw_bytes.decode(errors="ignore")
+
+                # Very naive HTTP parsing
+                first_line = raw_text.split("\r\n", 1)[0]
+                parts = first_line.split()
+                if len(parts) >= 2:
+                    method, uri = parts[0], parts[1]
             except Exception:
-                body_snippet = None
-            events.append({
-                "event_id": str(uuid.uuid4()),
-                "timestamp": getattr(pkt, "sniff_time", None).isoformat() if hasattr(pkt, "sniff_time") else None,
-                "src_ip": src_ip,
-                "dst_ip": dst_ip,
-                "method": str(method),
-                "url": str(uri),
-                "headers": headers,
-                "body_snippet": body_snippet,
-                "pcap_path": pcap_path
-            })
-    finally:
-        try: cap.close()
-        except Exception: pass
+                continue
+
+        if not method or not uri:
+            continue
+
+        headers = {}
+        if "http.host" in http:
+            headers["Host"] = http["http.host"]
+        if "http.user_agent" in http:
+            headers["User-Agent"] = http["http.user_agent"]
+
+        events.append({
+            "event_id": str(uuid.uuid4()),
+            "timestamp": layers.get("frame", {}).get("frame.time"),
+            "src_ip": ip.get("ip.src"),
+            "dst_ip": ip.get("ip.dst"),
+            "method": method,
+            "url": uri,
+            "headers": headers,
+            "body_snippet": None,
+            "pcap_path": pcap_path,
+        })
+
     return events
