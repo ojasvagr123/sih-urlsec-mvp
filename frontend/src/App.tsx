@@ -1,4 +1,4 @@
-import { Routes, Route, NavLink, useLocation } from "react-router-dom"
+import { Routes, Route, NavLink } from "react-router-dom"
 import Dashboard from "./pages/Dashboard"
 import Cowrie from "./pages/Cowrie"
 import AnalyticsDashboard from "./pages/AnalyticsDashboard"
