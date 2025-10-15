@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .db import init_db
-from .routers import dashboard, http_events, pcap, cowrie
+from .routers import dashboard, http_events, pcap, cowrie, analytics, forensics
 
 app = FastAPI(title="URL Attack Detector MVP")
 
@@ -29,6 +29,8 @@ app.include_router(dashboard.router)
 app.include_router(http_events.router)
 app.include_router(pcap.router)
 app.include_router(cowrie.router)
+app.include_router(analytics.router)
+app.include_router(forensics.router)
 
 # --- Health Check ---
 @app.get("/healthz")

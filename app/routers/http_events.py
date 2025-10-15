@@ -1,11 +1,12 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, UploadFile, File
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlmodel import select
 from ..db import get_session
 from ..models import Event
 from ..utils import gen_event_id, extract_params, to_snippet
 from ..detect import analyze
-import io, csv
+from ..pcap_ingest import parse_pcap_to_events  # fixed import
+import io, csv, tempfile
 
 router = APIRouter()
 
@@ -16,7 +17,7 @@ def upsert_event_dict(ev: dict):
     if ev.get("url") and not ev.get("params"):
         try:
             ev["params"] = extract_params(ev["url"])
-        except:
+        except Exception:
             ev["params"] = {}
     if ev.get("body") and not ev.get("body_snippet"):
         ev["body_snippet"] = to_snippet(ev.get("body"))
@@ -54,3 +55,19 @@ async def ingest_http(payload: list[dict]):
     for ev in payload:
         upsert_event_dict(ev)
     return {"status": "ok", "ingested": len(payload)}
+
+@router.post("/upload/pcap")
+async def upload_pcap(file: UploadFile = File(...)):
+    if not file.filename.endswith(".pcap"):
+        return {"error": "Invalid file type. Please upload a .pcap file."}
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pcap") as tmp:
+        contents = await file.read()
+        tmp.write(contents)
+        tmp_path = tmp.name
+
+    events = parse_pcap_to_events(tmp_path)
+    for ev in events:
+        upsert_event_dict(ev)
+
+    return {"status": "ok", "parsed_events": len(events)}

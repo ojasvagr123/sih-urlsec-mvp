@@ -15,7 +15,7 @@ export default function Cowrie() {
         {/* 🔹 Button at the top */}
       <div className="mb-4">
         <a
-          href="http://13.48.133.89/"
+          href="http://16.170.221.178/"
           target="_blank"
           rel="noopener noreferrer"
           className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded shadow"

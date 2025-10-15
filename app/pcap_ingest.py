@@ -1,10 +1,8 @@
-import subprocess, json, uuid
+import subprocess, json, uuid, binascii
 from typing import List, Dict, Any
-import binascii
 
 def parse_pcap_to_events(pcap_path: str) -> List[Dict[str, Any]]:
     events = []
-    # Use tcp.port==80 instead of http so we also catch undecoded payloads
     cmd = ["tshark", "-r", pcap_path, "-Y", "tcp.port==80", "-T", "json"]
     output = subprocess.check_output(cmd)
     packets = json.loads(output)
@@ -15,18 +13,15 @@ def parse_pcap_to_events(pcap_path: str) -> List[Dict[str, Any]]:
         ip = layers.get("ip", {})
         tcp = layers.get("tcp", {})
 
-        # Try proper HTTP fields first
         method = http.get("http.request.method")
         uri = http.get("http.request.full_uri") or http.get("http.request.uri")
 
-        # If tshark didn’t decode HTTP, fall back to raw tcp.payload
+        # Fallback if tshark didn't decode HTTP
         if not method and "tcp.payload" in tcp:
             try:
                 raw_hex = tcp["tcp.payload"].replace(":", "")
                 raw_bytes = binascii.unhexlify(raw_hex)
                 raw_text = raw_bytes.decode(errors="ignore")
-
-                # Very naive HTTP parsing
                 first_line = raw_text.split("\r\n", 1)[0]
                 parts = first_line.split()
                 if len(parts) >= 2:
@@ -54,5 +49,4 @@ def parse_pcap_to_events(pcap_path: str) -> List[Dict[str, Any]]:
             "body_snippet": None,
             "pcap_path": pcap_path,
         })
-
     return events

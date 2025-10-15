@@ -17,7 +17,8 @@ def index(request: Request):
         honeypot_hits = len(s.exec(select(Event).where(Event.honeypot_correlated == True)).all())
         successful_attacks = len(s.exec(select(Event).where(Event.is_success == True)).all())
 
-        ip_list = [e.src_ip for e in s.exec(select(Event.src_ip)).all()]
+        # Option 2 (for full events)
+        ip_list = [e.src_ip for e in s.exec(select(Event)).all()]
         top_attackers = Counter(ip_list).most_common(5)
 
         type_list = [e.attack_type for e in s.exec(select(Event.attack_type)).all() if e.attack_type]
