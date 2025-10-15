@@ -11,7 +11,6 @@ export default function App() {
         : "text-blue-300 hover:bg-blue-800/40"
     }`
 
-  const location = useLocation()
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-950 text-white">
